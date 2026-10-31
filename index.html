@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CryptoBot - Tracker de Criptomonedas</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js para la gráfica de inversiones -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex justify-center selection:bg-emerald-500 selection:text-black">
+
+  <div class="w-full max-w-md bg-slate-900 min-h-screen flex flex-col relative shadow-2xl border-x border-slate-800 pb-20">
+    
+    <!-- Notificación Toast -->
+    <div id="toast" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-slate-950 font-semibold px-4 py-2 rounded-full shadow-lg text-sm flex items-center space-x-2 transition-all">
+      <span id="toast-text">✓ Guardado Exitoso</span>
+    </div>
+
+    <!-- Encabezado -->
+    <header class="p-4 flex items-center justify-between border-b border-slate-800/80 sticky top-0 bg-slate-900/90 backdrop-blur-md z-30">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-bold text-slate-950 shadow-md">
+          ⚡
+        </div>
+        <span class="font-bold tracking-wide text-lg text-white">CryptoBot</span>
+      </div>
+
+      <div class="flex items-center space-x-1.5">
+        <button
+          onclick="fetchRealPrices()"
+          id="btn-refresh"
+          class="flex items-center space-x-1 text-[11px] px-2.5 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all cursor-pointer"
+        >
+          <span id="status-dot" class="w-2 h-2 rounded-full bg-emerald-400 inline-block mr-0.5"></span>
+          <span id="status-text">5-APIs</span>
+        </button>
+
+        <button 
+          onclick="manualSave()"
+          id="btn-manual-save"
+          title="Guardar todos los cambios en Google Sheets"
+          class="px-2.5 py-1.5 rounded-xl border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-bold transition-all text-xs cursor-pointer flex items-center space-x-1"
+        >
+          <span>💾</span>
+          <span>Guardar</span>
+        </button>
+        
+        <button 
+          onclick="openTxModal()"
+          class="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold transition-all shadow-md text-xs cursor-pointer"
+        >
+          + Nueva
+        </button>
+      </div>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="flex-1 overflow-y-auto p-4 space-y-4">
+
+      <!-- PESTAÑA: DASHBOARD -->
+      <div id="tab-dashboard" class="tab-content space-y-4">
+        <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-800 via-slate-800/90 to-slate-900 border border-slate-700/60 p-5 shadow-xl">
+          <div class="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1 flex justify-between">
+            <span>Balance Total Estimado</span>
+            <span class="text-emerald-400 flex items-center space-x-1">
+              <span id="cloud-sync-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="cloud-sync-text">Sheets Conectado</span>
+            </span>
+          </div>
+          <div id="total-balance" class="text-3xl font-extrabold text-white tracking-tight mb-2">
+            $0.00
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-700/50">
+            <div>
+              <div class="text-slate-400 text-xs mb-0.5">Rendimiento 24h</div>
+              <div id="total-24h-change" class="text-sm font-semibold text-emerald-400">+$0.00 (0.00%)</div>
+            </div>
+            <div>
+              <div class="text-slate-400 text-xs mb-0.5">Ganancia/Pérdida Total</div>
+              <div id="total-pnl" class="text-sm font-semibold text-emerald-400">+$0.00 (0.00%)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gráfica -->
+        <div class="bg-slate-800/50 rounded-2xl p-4 border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center">
+            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Desempeño de Inversiones</h3>
+            <span class="text-[10px] text-slate-400">En vivo</span>
+          </div>
+          <div class="relative h-44 w-full">
+            <canvas id="portfolioChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Mis Activos -->
+        <div class="space-y-2">
+          <div class="flex justify-between items-center">
+            <h3 class="text-sm font-semibold text-slate-300">Mis Activos</h3>
+            <button onclick="switchTab('holdings')" class="text-xs text-emerald-400 hover:underline">Ver Todo →</button>
+          </div>
+          <div id="dashboard-holdings-list" class="space-y-2"></div>
+        </div>
+
+        <!-- Mercado General (5 APIs) -->
+        <div class="space-y-2 pt-2">
+          <div class="flex justify-between items-center">
+            <h3 class="text-sm font-semibold text-slate-300">Mercado Crypto (5 Fuentes)</h3>
+            <span id="api-source-badge" class="text-[10px] bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full border border-slate-700">Multi-Fuente Activa</span>
+          </div>
+          <div id="market-grid" class="grid grid-cols-2 gap-2"></div>
+        </div>
+      </div>
+
+      <!-- PESTAÑA: CARTERA -->
+      <div id="tab-holdings" class="tab-content hidden space-y-3">
+        <h2 class="text-lg font-bold text-white mb-2">Detalle de Cartera</h2>
+        <div id="full-holdings-list" class="space-y-3"></div>
+      </div>
+
+      <!-- PESTAÑA: HISTORIAL -->
+      <div id="tab-history" class="tab-content hidden space-y-3">
+        <h2 class="text-lg font-bold text-white mb-2">Historial de Transacciones</h2>
+        <div id="history-list" class="space-y-2"></div>
+      </div>
+
+      <!-- PESTAÑA: AJUSTES -->
+      <div id="tab-analytics" class="tab-content hidden space-y-4">
+        <h2 class="text-lg font-bold text-white mb-2">Ajustes & Respaldo</h2>
+        <div class="bg-slate-800/60 rounded-2xl p-4 border border-emerald-500/30 space-y-3">
+          <div class="text-emerald-400 font-bold text-xs flex items-center space-x-1">
+            <span>📊</span><span>BASE DE DATOS GOOGLE SHEETS</span>
+          </div>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Cada compra y venta se sincroniza directamente con tu hoja de cálculo en la nube.
+          </p>
+          <div class="pt-2 grid grid-cols-2 gap-2">
+            <button onclick="manualSave()" class="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all">💾 Sincronizar Google</button>
+            <button onclick="confirmClearAll()" class="py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition-all">🗑️ Vaciar Cartera</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Modal Confirmación -->
+    <div id="confirm-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 text-center">
+        <div id="confirm-icon" class="text-3xl">⚠️</div>
+        <h3 id="confirm-title" class="font-bold text-base text-white">¿Estás seguro?</h3>
+        <p id="confirm-msg" class="text-xs text-slate-400">Esta acción modificará tus datos.</p>
+        <div class="grid grid-cols-2 gap-2 pt-2">
+          <button onclick="closeConfirmModal()" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl">Cancelar</button>
+          <button id="confirm-action-btn" class="py-2.5 bg-rose-500 text-slate-950 font-bold text-xs rounded-xl">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Transacción -->
+    <div id="tx-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center sm:items-center p-0 sm:p-4">
+      <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl p-5 space-y-4">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+          <h3 class="font-bold text-lg text-white">Registrar Operación</h3>
+          <button onclick="closeTxModal()" class="text-slate-400 hover:text-white text-xl font-bold p-1">✕</button>
+        </div>
+
+        <form id="tx-form" onsubmit="handleFormSubmit(event)" class="space-y-4">
+          <div class="grid grid-cols-2 gap-2 p-1 bg-slate-800 rounded-xl">
+            <button type="button" id="btn-type-buy" onclick="setTxType('BUY')" class="py-2 rounded-lg font-bold text-xs bg-emerald-500 text-slate-950">COMPRA</button>
+            <button type="button" id="btn-type-sell" onclick="setTxType('SELL')" class="py-2 rounded-lg font-bold text-xs text-slate-400">VENTA</button>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Criptomoneda</label>
+            <select id="select-asset" onchange="useCurrentPrice()" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none"></select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Cantidad</label>
+            <input type="number" step="any" id="input-amount" placeholder="0.00" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none">
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="block text-xs font-semibold text-slate-300">Precio por unidad ($)</label>
+              <button type="button" onclick="useCurrentPrice()" class="text-[10px] text-emerald-400 hover:underline">Usar precio actual</button>
+            </div>
+            <input type="number" step="any" id="input-price" placeholder="0.00" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none">
+          </div>
+
+          <button type="submit" id="btn-submit-tx" class="w-full py-3 rounded-xl font-bold text-sm bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-all shadow-lg">
+            Confirmar Operación
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Navegación Inferior -->
+    <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 grid grid-cols-4 px-2 py-2 z-40">
+      <button onclick="switchTab('dashboard')" id="nav-dashboard" class="flex flex-col items-center py-1.5 text-emerald-400 font-semibold">
+        <span class="text-base">💼</span><span class="text-[10px]">Inicio</span>
+      </button>
+      <button onclick="switchTab('holdings')" id="nav-holdings" class="flex flex-col items-center py-1.5 text-slate-500 hover:text-slate-300">
+        <span class="text-base">📊</span><span class="text-[10px]">Cartera</span>
+      </button>
+      <button onclick="switchTab('history')" id="nav-history" class="flex flex-col items-center py-1.5 text-slate-500 hover:text-slate-300">
+        <span class="text-base">📜</span><span class="text-[10px]">Historial</span>
+      </button>
+      <button onclick="switchTab('analytics')" id="nav-analytics" class="flex flex-col items-center py-1.5 text-slate-500 hover:text-slate-300">
+        <span class="text-base">⚙️</span><span class="text-[10px]">Ajustes</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <script>
+    // URL DE CONEXIÓN A GOOGLE SHEETS
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzChtVNt170s6dJC-1iz43qEnC_CN5J9c5QH-pzkGmezbSI6bDs47wDWexcj2pwCt0enw/exec";
+
+    const INITIAL_ASSETS = [
+      { id: 'bitcoin', name: 'Bitcoin', symbol: 'BTC', price: 67500, change24h: 2.1, icon: '₿', color: '#F7931A' },
+      { id: 'ethereum', name: 'Ethereum', symbol: 'ETH', price: 3500, change24h: -0.5, icon: 'Ξ', color: '#627EEA' },
+      { id: 'solana', name: 'Solana', symbol: 'SOL', price: 180, change24h: 5.4, icon: '◎', color: '#14F195' },
+      { id: 'binancecoin', name: 'BNB', symbol: 'BNB', price: 580, change24h: 1.2, icon: '⬡', color: '#F3BA2F' },
+      { id: 'cardano', name: 'Cardano', symbol: 'ADA', price: 0.48, change24h: -0.8, icon: '₳', color: '#0033AD' },
+      { id: 'ripple', name: 'XRP', symbol: 'XRP', price: 0.58, change24h: 1.5, icon: '✕', color: '#23292F' }
+    ];
+
+    function loadSavedLocalData(key, fallback) {
+      try {
+        let saved = localStorage.getItem(key);
+        if (saved && saved !== 'undefined') return JSON.parse(saved);
+      } catch (e) {}
+      return fallback;
+    }
+
+    let marketAssets = loadSavedLocalData('crypto_market_assets', INITIAL_ASSETS);
+    let holdings = loadSavedLocalData('crypto_holdings', []);
+    let transactions = loadSavedLocalData('crypto_transactions', []);
+    let chartHistory = loadSavedLocalData('crypto_chart_history', { labels: ['Inicio'], data: [0] });
+
+    let currentTxType = 'BUY';
+    let pendingConfirmAction = null;
+    let chartInstance = null;
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      toastText.innerText = msg;
+      toast.classList.remove('hidden');
+      setTimeout(() => { toast.classList.add('hidden'); }, 3000);
+    }
+
+    function saveLocalBackup() {
+      try {
+        localStorage.setItem('crypto_market_assets', JSON.stringify(marketAssets));
+        localStorage.setItem('crypto_holdings', JSON.stringify(holdings));
+        localStorage.setItem('crypto_transactions', JSON.stringify(transactions));
+        localStorage.setItem('crypto_chart_history', JSON.stringify(chartHistory));
+      } catch (e) {}
+      renderUI();
+    }
+
+    // Sincronización con Google Sheets
+    async function loadDataFromGoogleSheets() {
+      const dot = document.getElementById('cloud-sync-dot');
+      const text = document.getElementById('cloud-sync-text');
+      if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-400 inline-block mr-0.5 animate-ping";
+      if (text) text.innerText = "Cargando Sheets...";
+
+      try {
+        const res = await fetch(GOOGLE_SCRIPT_URL);
+        if (res.ok) {
+          const remoteTxs = await res.json();
+          if (Array.isArray(remoteTxs) && remoteTxs.length > 0) {
+            transactions = remoteTxs;
+            recalculateHoldingsFromTransactions();
+          }
+          if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-400 inline-block mr-0.5";
+          if (text) text.innerText = "Sheets Conectado";
+        }
+      } catch (e) {
+        if (dot) dot.className = "w-2 h-2 rounded-full bg-blue-400 inline-block mr-0.5";
+        if (text) text.innerText = "Respaldo Local";
+      }
+      saveLocalBackup();
+    }
+
+    async function sendTransactionToGoogleSheets(tx) {
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(tx)
+        });
+      } catch (e) {}
+    }
+
+    async function clearGoogleSheetsDB() {
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'CLEAR' })
+        });
+      } catch (e) {}
+    }
+
+    function recalculateHoldingsFromTransactions() {
+      holdings = [];
+      const sortedTxs = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+      
+      sortedTxs.forEach(tx => {
+        const index = holdings.findIndex(h => h.assetId === tx.assetId);
+        const amount = parseFloat(tx.amount);
+        const price = parseFloat(tx.price);
+
+        if (tx.type === 'BUY') {
+          if (index >= 0) {
+            const h = holdings[index];
+            const totalCost = (h.amount * h.avgBuyPrice) + (amount * price);
+            const newAmount = h.amount + amount;
+            holdings[index] = { assetId: tx.assetId, amount: newAmount, avgBuyPrice: totalCost / newAmount };
+          } else {
+            holdings.push({ assetId: tx.assetId, amount, avgBuyPrice: price });
+          }
+        } else if (tx.type === 'SELL') {
+          if (index >= 0) {
+            const newAmount = holdings[index].amount - amount;
+            if (newAmount <= 0.000001) {
+              holdings.splice(index, 1);
+            } else {
+              holdings[index].amount = newAmount;
+            }
+          }
+        }
+      });
+    }
+
+    function manualSave() {
+      const btn = document.getElementById('btn-manual-save');
+      if (btn) btn.innerText = "⏳...";
+      saveLocalBackup();
+      loadDataFromGoogleSheets();
+      setTimeout(() => {
+        if (btn) btn.innerText = "💾 Guardar";
+        showToast('✓ Cartera sincronizada con Google Sheets');
+      }, 800);
+    }
+
+    // Motor 5 APIs
+    async function fetchRealPrices() {
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      const badge = document.getElementById('api-source-badge');
+
+      if (dot) dot.className = "w-2 h-2 rounded-full bg-amber-400 inline-block mr-0.5 animate-ping";
+      if (text) text.innerText = "...";
+
+      let updated = false;
+
+      // Fuente 1: Binance
+      try {
+        const symbolsMap = { 'BTC': 'BTCUSDT', 'ETH': 'ETHUSDT', 'SOL': 'SOLUSDT', 'BNB': 'BNBUSDT', 'ADA': 'ADAUSDT', 'XRP': 'XRPUSDT' };
+        const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+        if (res.ok) {
+          const data = await res.json();
+          const pricesMap = {};
+          data.forEach(item => { pricesMap[item.symbol] = item; });
+
+          marketAssets = marketAssets.map(asset => {
+            const pair = symbolsMap[asset.symbol];
+            if (pair && pricesMap[pair]) {
+              return {
+                ...asset,
+                price: parseFloat(pricesMap[pair].lastPrice),
+                change24h: parseFloat(parseFloat(pricesMap[pair].priceChangePercent).toFixed(2))
+              };
+            }
+            return asset;
+          });
+          updated = true;
+          if (badge) badge.innerText = "Binance API";
+        }
+      } catch (e) {}
+
+      // Fuente 2: Coinbase
+      if (!updated) {
+        try {
+          for (let asset of marketAssets) {
+            const res = await fetch(`https://api.coinbase.com/v2/prices/${asset.symbol}-USD/spot`);
+            if (res.ok) {
+              const json = await res.json();
+              if (json && json.data && json.data.amount) {
+                asset.price = parseFloat(json.data.amount);
+              }
+            }
+          }
+          updated = true;
+          if (badge) badge.innerText = "Coinbase API";
+        } catch (e) {}
+      }
+
+      // Fuente 3: CryptoCompare
+      if (!updated) {
+        try {
+          const res = await fetch('https://min-api.cryptocompare.com/data/pricemultifull?fsyms=BTC,ETH,SOL,BNB,ADA,XRP&tsyms=USD');
+          if (res.ok) {
+            const json = await res.json();
+            if (json.RAW) {
+              marketAssets = marketAssets.map(asset => {
+                const data = json.RAW[asset.symbol] ? json.RAW[asset.symbol].USD : null;
+                if (data) {
+                  return { ...asset, price: data.PRICE, change24h: parseFloat(data.CHANGEPCT24HOUR.toFixed(2)) };
+                }
+                return asset;
+              });
+              updated = true;
+              if (badge) badge.innerText = "CryptoCompare API";
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Fuente 4: Kraken
+      if (!updated) {
+        try {
+          const res = await fetch('https://api.kraken.com/0/public/Ticker?pair=XBTUSD,ETHUSD,SOLUSD,ADAUSD,XRPUSD');
+          if (res.ok) {
+            const json = await res.json();
+            if (json.result) {
+              const r = json.result;
+              marketAssets.forEach(a => {
+                if (a.symbol === 'BTC' && r.XXBTZUSD) a.price = parseFloat(r.XXBTZUSD.c[0]);
+                if (a.symbol === 'ETH' && r.XETHZUSD) a.price = parseFloat(r.XETHZUSD.c[0]);
+                if (a.symbol === 'SOL' && r.SOLUSD) a.price = parseFloat(r.SOLUSD.c[0]);
+                if (a.symbol === 'ADA' && r.ADAUSD) a.price = parseFloat(r.ADAUSD.c[0]);
+                if (a.symbol === 'XRP' && r.XXRPZUSD) a.price = parseFloat(r.XXRPZUSD.c[0]);
+              });
+              updated = true;
+              if (badge) badge.innerText = "Kraken API";
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Fuente 5: CoinGecko
+      if (!updated) {
+        try {
+          const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,binancecoin,cardano,ripple&vs_currencies=usd&include_24hr_change=true');
+          if (res.ok) {
+            const json = await res.json();
+            marketAssets.forEach(a => {
+              if (json[a.id]) {
+                a.price = json[a.id].usd;
+                if (json[a.id].usd_24h_change) a.change24h = parseFloat(json[a.id].usd_24h_change.toFixed(2));
+              }
+            });
+            updated = true;
+            if (badge) badge.innerText = "CoinGecko API";
+          }
+        } catch (e) {}
+      }
+
+      if (dot) dot.className = "w-2 h-2 rounded-full bg-emerald-400 inline-block mr-0.5";
+      if (text) text.innerText = "5-APIs";
+      saveLocalBackup();
+    }
+
+    function openConfirmModal(title, msg, icon, btnText, btnClass, action) {
+      document.getElementById('confirm-title').innerText = title;
+      document.getElementById('confirm-msg').innerText = msg;
+      document.getElementById('confirm-icon').innerText = icon;
+      const confirmBtn = document.getElementById('confirm-action-btn');
+      confirmBtn.innerText = btnText;
+      confirmBtn.className = `py-2.5 font-bold text-xs rounded-xl ${btnClass}`;
+      pendingConfirmAction = action;
+      document.getElementById('confirm-modal').classList.remove('hidden');
+    }
+
+    function closeConfirmModal() {
+      document.getElementById('confirm-modal').classList.add('hidden');
+      pendingConfirmAction = null;
+    }
+
+    document.getElementById('confirm-action-btn').addEventListener('click', () => {
+      if (pendingConfirmAction) pendingConfirmAction();
+      closeConfirmModal();
+    });
+
+    function renderUI() {
+      const assetMap = {};
+      marketAssets.forEach(a => assetMap[a.id] = a);
+
+      let totalValue = 0;
+      let totalCost = 0;
+      let total24hChange = 0;
+
+      const detailedHoldings = holdings.map(h => {
+        const asset = assetMap[h.assetId] || { price: 0, change24h: 0, symbol: '??', name: h.assetId, icon: '?' };
+        const currentVal = h.amount * asset.price;
+        const costBasis = h.amount * (h.avgBuyPrice || asset.price);
+        const profitLoss = currentVal - costBasis;
+        const profitLossPct = costBasis > 0 ? (profitLoss / costBasis) * 100 : 0;
+
+        totalValue += currentVal;
+        totalCost += costBasis;
+        total24hChange += currentVal * (asset.change24h / 100);
+
+        return { ...h, asset, currentVal, costBasis, profitLoss, profitLossPct };
+      }).filter(h => h.amount > 0);
+
+      const totalProfitLoss = totalValue - totalCost;
+      const totalProfitLossPct = totalCost > 0 ? (totalProfitLoss / totalCost) * 100 : 0;
+      const overall24hPct = totalValue > 0 ? (total24hChange / totalValue) * 100 : 0;
+
+      document.getElementById('total-balance').innerText = `$${totalValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+      
+      const changeEl = document.getElementById('total-24h-change');
+      changeEl.innerText = `${total24hChange >= 0 ? '+' : ''}$${Math.abs(total24hChange).toFixed(2)} (${overall24hPct >= 0 ? '+' : ''}${overall24hPct.toFixed(2)}%)`;
+      changeEl.className = `text-sm font-semibold ${total24hChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+
+      const pnlEl = document.getElementById('total-pnl');
+      pnlEl.innerText = `${totalProfitLoss >= 0 ? '+' : ''}$${totalProfitLoss.toFixed(2)} (${totalProfitLossPct >= 0 ? '+' : ''}${totalProfitLossPct.toFixed(2)}%)`;
+      pnlEl.className = `text-sm font-semibold ${totalProfitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+
+      // Dashboard list
+      const dashList = document.getElementById('dashboard-holdings-list');
+      dashList.innerHTML = detailedHoldings.length === 0 ? '<p class="text-xs text-slate-500 py-2">No tienes posiciones agregadas.</p>' : '';
+      detailedHoldings.slice(0, 3).forEach(h => {
+        dashList.innerHTML += `
+          <div class="flex items-center justify-between p-3 bg-slate-800/40 rounded-xl border border-slate-800">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg flex items-center justify-center font-bold" style="background: ${h.asset.color}25; color: ${h.asset.color}">${h.asset.icon}</div>
+              <div>
+                <div class="font-bold text-white text-xs">${h.asset.name}</div>
+                <div class="text-[10px] text-slate-400">${h.amount} ${h.asset.symbol}</div>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="font-semibold text-xs text-white">$${h.currentVal.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+              <div class="text-[10px] ${h.profitLoss >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${h.profitLoss >= 0 ? '+' : ''}$${h.profitLoss.toFixed(2)}</div>
+            </div>
+          </div>
+        `;
+      });
+
+      // Market Grid
+      const marketGrid = document.getElementById('market-grid');
+      marketGrid.innerHTML = '';
+      marketAssets.forEach(a => {
+        marketGrid.innerHTML += `
+          <div class="p-3 bg-slate-800/30 rounded-xl border border-slate-800 flex flex-col justify-between">
+            <div class="flex justify-between items-start mb-1">
+              <span class="font-semibold text-xs text-slate-300">${a.symbol}</span>
+              <span class="text-[10px] font-bold px-1 rounded ${a.change24h >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">${a.change24h >= 0 ? '+' : ''}${a.change24h}%</span>
+            </div>
+            <div class="text-xs font-bold text-white">$${a.price < 1 ? a.price.toFixed(4) : a.price.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+          </div>
+        `;
+      });
+
+      // Holdings Tab
+      const fullList = document.getElementById('full-holdings-list');
+      fullList.innerHTML = detailedHoldings.length === 0 ? '<p class="text-sm text-slate-500 text-center py-6">Tu portafolio está vacío.</p>' : '';
+      detailedHoldings.forEach(h => {
+        fullList.innerHTML += `
+          <div class="p-4 bg-slate-800/60 rounded-2xl border border-slate-700/50 space-y-3">
+            <div class="flex justify-between items-center">
+              <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg" style="background: ${h.asset.color}25; color: ${h.asset.color}">${h.asset.icon}</div>
+                <div>
+                  <div class="font-bold text-white text-base">${h.asset.name}</div>
+                  <div class="text-xs text-slate-400">${h.asset.symbol}</div>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="text-base font-bold text-white">$${h.currentVal.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                <div class="text-xs text-slate-400">${h.amount} ${h.asset.symbol}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      // History Tab
+      const historyList = document.getElementById('history-list');
+      historyList.innerHTML = transactions.length === 0 ? '<p class="text-sm text-slate-500 text-center py-6">Sin historial aún.</p>' : '';
+      transactions.forEach(tx => {
+        const asset = assetMap[tx.assetId] || { symbol: tx.assetId };
+        const isBuy = tx.type === 'BUY';
+        historyList.innerHTML += `
+          <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-800 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center font-bold ${isBuy ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">${isBuy ? '↓' : '↑'}</div>
+              <div>
+                <div class="font-bold text-xs text-white">${isBuy ? 'Compra' : 'Venta'} ${asset.symbol}</div>
+                <div class="text-[10px] text-slate-400">${new Date(tx.date).toLocaleDateString()}</div>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="font-semibold text-xs text-white">${isBuy ? '+' : '-'}${tx.amount} ${asset.symbol}</div>
+              <div class="text-[10px] text-slate-400">@ $${parseFloat(tx.price).toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+            </div>
+          </div>
+        `;
+      });
+
+      renderChart(totalValue);
+    }
+
+    function renderChart(currentTotal) {
+      const ctx = document.getElementById('portfolioChart');
+      if (!ctx) return;
+      if (!chartHistory || chartHistory.labels.length === 0) {
+        chartHistory = { labels: ['Inicio'], data: [currentTotal] };
+      } else {
+        chartHistory.data[chartHistory.data.length - 1] = currentTotal;
+      }
+      if (chartInstance) {
+        chartInstance.data.labels = chartHistory.labels;
+        chartInstance.data.datasets[0].data = chartHistory.data;
+        chartInstance.update();
+        return;
+      }
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: chartHistory.labels,
+          datasets: [{
+            label: 'Valor ($)',
+            data: chartHistory.data,
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            borderWidth: 2,
+            tension: 0.4,
+            fill: true,
+            pointRadius: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } },
+            y: { grid: { color: '#334155' }, ticks: { color: '#64748b', font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    function openTxModal() {
+      const select = document.getElementById('select-asset');
+      select.innerHTML = '';
+      marketAssets.forEach(a => {
+        select.innerHTML += `<option value="${a.id}">${a.name} (${a.symbol})</option>`;
+      });
+      useCurrentPrice();
+      document.getElementById('tx-modal').classList.remove('hidden');
+    }
+
+    function closeTxModal() {
+      document.getElementById('tx-modal').classList.add('hidden');
+    }
+
+    function setTxType(type) {
+      currentTxType = type;
+      const btnBuy = document.getElementById('btn-type-buy');
+      const btnSell = document.getElementById('btn-type-sell');
+      const submitBtn = document.getElementById('btn-submit-tx');
+      if (type === 'BUY') {
+        btnBuy.className = 'py-2 rounded-lg font-bold text-xs bg-emerald-500 text-slate-950';
+        btnSell.className = 'py-2 rounded-lg font-bold text-xs text-slate-400';
+        submitBtn.className = 'w-full py-3 rounded-xl font-bold text-sm bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition-all shadow-lg';
+      } else {
+        btnBuy.className = 'py-2 rounded-lg font-bold text-xs text-slate-400';
+        btnSell.className = 'py-2 rounded-lg font-bold text-xs bg-rose-500 text-white';
+        submitBtn.className = 'w-full py-3 rounded-xl font-bold text-sm bg-rose-500 text-white hover:bg-rose-400 transition-all shadow-lg';
+      }
+    }
+
+    function useCurrentPrice() {
+      const assetId = document.getElementById('select-asset').value;
+      const asset = marketAssets.find(a => a.id === assetId);
+      if (asset) {
+        document.getElementById('input-price').value = asset.price;
+      }
+    }
+
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      const assetId = document.getElementById('select-asset').value;
+      const amount = parseFloat(document.getElementById('input-amount').value);
+      const price = parseFloat(document.getElementById('input-price').value);
+
+      if (!amount || amount <= 0 || !price || price <= 0) return;
+
+      const current = holdings.find(h => h.assetId === assetId) || { amount: 0, avgBuyPrice: 0 };
+      if (currentTxType === 'SELL' && amount > current.amount) {
+        showToast('⚠️ Saldo insuficiente');
+        return;
+      }
+
+      const newTx = {
+        id: `tx-${Date.now()}`,
+        date: new Date().toISOString(),
+        type: currentTxType,
+        assetId,
+        amount,
+        price
+      };
+
+      transactions.unshift(newTx);
+      recalculateHoldingsFromTransactions();
+      saveLocalBackup();
+      sendTransactionToGoogleSheets(newTx);
+
+      closeTxModal();
+      document.getElementById('input-amount').value = '';
+      showToast('✓ Operación guardada en Google Sheets');
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(`tab-${tab}`).classList.remove('hidden');
+
+      ['dashboard', 'holdings', 'history', 'analytics'].forEach(t => {
+        const btn = document.getElementById(`nav-${t}`);
+        if (t === tab) {
+          btn.className = 'flex flex-col items-center py-1.5 text-emerald-400 font-semibold';
+        } else {
+          btn.className = 'flex flex-col items-center py-1.5 text-slate-500 hover:text-slate-300';
+        }
+      });
+    }
+
+    function confirmClearAll() {
+      openConfirmModal(
+        '¿Vaciar portafolio?',
+        'Se eliminarán todas tus posiciones tanto localmente como en Google Sheets.',
+        '🗑️',
+        'Vaciar',
+        'bg-rose-500 text-white',
+        () => {
+          holdings = [];
+          transactions = [];
+          chartHistory = { labels: ['Hoy'], data: [0] };
+          saveLocalBackup();
+          clearGoogleSheetsDB();
+          showToast('✓ Portafolio vaciado');
+        }
+      );
+    }
+
+    window.onload = function() {
+      renderUI();
+      loadDataFromGoogleSheets();
+      fetchRealPrices();
+      setInterval(fetchRealPrices, 45000);
+    };
+  </script>
+</body>
+</html>
+```
